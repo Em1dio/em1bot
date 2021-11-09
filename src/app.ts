@@ -177,7 +177,13 @@ async function onMessageHandler(target, context, msg, self) {
       break;
     }
     case "!carteira": {
-      await wallet(context.username);
+      let username: string = commands[1] || context.username;
+
+      if (username.startsWith("@")) {
+        username = username.slice(1);
+      }
+
+      await wallet(username);
       break;
     }
     case "!investir": {
