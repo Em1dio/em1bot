@@ -177,13 +177,13 @@ async function onMessageHandler(target, context, msg, self) {
       break;
     }
     case "!carteira": {
-      let username: string = commands[1] || context.username;
+      let username: string = commands[1];
 
-      if (username.startsWith("@")) {
+      if (username && username.startsWith("@")) {
         username = username.slice(1);
       }
 
-      await wallet(username);
+      await wallet(context.username, username);
       break;
     }
     case "!investir": {
@@ -413,10 +413,20 @@ async function em1coin(username: string, isSubscriber: boolean) {
   client.say("#em1dio", `/me 🤝 Voce ja ganhou seu salario hoje!`);
 }
 
-async function wallet(username: string) {
-  const wallet = await getWallet(username);
-  if (!wallet) {
-    return giveEM1(username);
+async function wallet(messageAuthor: string, username?: string) {
+  let wallet: IWallet;
+
+  if (username) {
+   wallet = await getWallet(username);
+
+    if (!wallet) {
+      return client.say("#em1dio", `/me O usuário @${username} não possui uma carteira`);
+    }
+  } else {
+    wallet = await getWallet(messageAuthor);
+    if (!wallet) {
+      return giveEM1(messageAuthor);
+    }
   }
 
   const coins = wallet.coins;
