@@ -1,10 +1,8 @@
 // Sistema de Inflacao pra dinheiro que ficar na conta qndo o mercado fechar. -15% + 15%.
-// TODO: THINK ABOUT IT. Sistema de Roubo de Moedas Paradas. (Evento Pago por Em1Coins da Live)
 // TODO: GUARDAR Mercado dentro do MongoDb
-// TODO: Eventos estarem no mongoDB e serao chamados pelo bot.66
+// TODO: Eventos estarem no mongoDB e serao chamados pelo bot.
 // Taxa por venda :) (ideia do AlissonSLeal)
 require("dotenv").config();
-import { IncomingHttpStatusHeader } from "http2";
 import { ObjectId } from "mongodb";
 import path = require("path");
 
@@ -26,25 +24,19 @@ const axios = require("axios");
 require("dotenv").config();
 const cronJob = require("cron").job;
 
+enum TipoEvento {
+  Pegar = "pegar",
+  Assalto = "assalto",
+}
+
 const job = new cronJob("0 */5 * * * *", async () => {
   if (mercado.status) {
-    const evento = await event();
-    const { coin, value, quantity } = evento;
-    mercado.evento.coin = coin;
-    mercado.evento.value = value;
-    mercado.evento.quantity = quantity;
-    mercado.evento.status = true;
-    const filePath = path.join(__dirname, "cash.mp3");
-    await sound.play(filePath);
-    client.say(
-      "#em1dio",
-      `/me 🤝 O evento comecou! Digite !pegar para conseguir... [${coin}]:${value.toFixed(5)}!`
-    );
-    setTimeout(async () => {
-      mercado.evento.status = false;
-      mercado.evento.pegou = [];
-      client.say("#em1dio", `/me :( O evento acabou!!`);
-    }, 30 * 1000); // 30 segundos
+    const functionArray = [
+      TipoEvento.Pegar,
+      TipoEvento.Assalto
+    ];
+    const sorteio = random(0, functionArray.length);
+    runEvents(functionArray[sorteio]);
   }
 });
 job.start();
@@ -57,8 +49,10 @@ const mercado = {
     value: 0,
     quantity: 0,
     status: false,
+    risco: 0,
     pegou: [] as string[],
-  }
+    participar: [] as string[],
+  },
 };
 
 const countInArray = (arr: unknown[], item: string | number) =>
@@ -83,10 +77,6 @@ interface IWallet {
   coins?: ICoin[];
 }
 
-enum Coins {
-  BTC = "BTC",
-  EM1 = "EM1",
-}
 const opts = {
   identity: {
     username: process.env.USERNAME,
@@ -104,6 +94,23 @@ client.on("connected", onConnectedHandler);
 
 // Connect to Twitch:
 client.connect();
+
+async function EventoPegar() {
+  const quantity = random(5, 10);
+  mercado.evento.status = true;
+  mercado.evento.quantity = quantity;
+  const filePath = path.join(__dirname, "cash.mp3");
+  await sound.play(filePath);
+  client.say(
+    "#em1dio",
+    `/me 🤝 O evento comecou! Digite !pegar para conseguir... [EM1]: ${quantity}!`
+  );
+  setTimeout(async () => {
+    mercado.evento.status = false;
+    mercado.evento.pegou = [];
+    client.say("#em1dio", `/me :( O evento acabou!!`);
+  }, 30 * 1000);
+}
 
 // Called every time a message comes in
 async function onMessageHandler(target, context, msg, self) {
@@ -160,7 +167,7 @@ async function onMessageHandler(target, context, msg, self) {
     "!carteira",
     "!salario",
     "!moedas",
-    "!pegar"
+    "!pegar",
   ];
   if (listCommands.includes(command) && !mercado) {
     return client.say(
@@ -218,20 +225,12 @@ async function onMessageHandler(target, context, msg, self) {
       await pegar(context.username);
       break;
     }
+
+    case "!participar": {
+      await participar(context.username);
+      break;
+    }
   }
-}
-
-async function event(randomNumber?: number) {
-  // get random coin in cryptocoins
-  const cryptoCoins = await getCryptoCoins();
-  const randomCoin = cryptoCoins[random(0, cryptoCoins.length)];
-
-  randomNumber = randomNumber || random(5, 10);
-  const coinValue = await getCoinValue(randomCoin);
-
-  const value = randomNumber / coinValue;
-
-  return { coin: randomCoin, value: value, quantity: randomNumber };
 }
 
 function commandsMercado(listCommands: string[]) {
@@ -262,8 +261,10 @@ async function vender(valor: number, username: string, cryptoCoin: string) {
       `/me 🤔 A moeda ${cryptoCoin} não existe. Use !moedas para conhecer as moedas validas.`
     );
   }
+
   const coins = wallet.coins.find((x) => x.symbol === validCryptoCoin);
   valor = !valor ? coins.quantity : valor;
+
   if (valor < 0 || !Number(valor)) {
     return client.say(
       "#em1dio",
@@ -443,6 +444,25 @@ function novaCarteira(username: string) {
   );
 }
 
+async function takeOutEm1(username: string, valor: number) {
+  const db = mongoClient.db("em1bot");
+  const accountsCollection = db.collection("em1coinsimulator");
+
+  const wallet = await getWallet(username);
+  
+  if (wallet.em1coins < valor) {
+    return accountsCollection.updateOne(
+      { username },
+      { $set: { em1coins: 0 } }
+    );  
+  }
+
+  return accountsCollection.updateOne(
+    { username },
+    { $inc: { em1coins: -valor } }
+  );   
+} 
+
 async function giveEM1(username: string, valor?: number) {
   const wallet = await getWallet(username);
   const db = mongoClient.db("em1bot");
@@ -576,15 +596,110 @@ async function pegar(username: string) {
 
   if (mercado.evento.status && !isInsidePegou) {
     mercado.evento.pegou.push(username);
-    const transaction: ICoin = {
-      symbol: mercado.evento.coin,
-      quantity: mercado.evento.quantity,
-      status: Status.Doacao,
-    };
-    await giveCoin(username, transaction);
-    client.say(
-      "#em1dio",
-      `/me @${username} 🤝 Voce ganhou [${mercado.evento.coin}]: ${mercado.evento.value.toFixed(5)}`
-    );
+    await giveEM1(username, mercado.evento.quantity);
   }
 }
+
+async function participar(username: string) {
+  // check if username is not inside momento.pegou
+  const isInsideParticipar = mercado.evento.participar.includes(username);
+
+  if (mercado.evento.status && !isInsideParticipar) {
+    mercado.evento.participar.push(username);
+    try {
+      takeOutEm1(username, mercado.evento.quantity);
+      client.say("#em1dio", `/me 🔫 Voce esta fazendo parte do Assalto!`);
+
+    } catch (error) {
+      console.log(error);   
+    }
+  }
+}
+
+async function runEvents(evento: string) {
+  switch (evento) {
+    case TipoEvento.Pegar:
+      await EventoPegar();
+      break;
+
+    case TipoEvento.Assalto:
+      await EventoAssalto();
+      break;
+  }
+}
+
+async function EventoAssalto() {
+  mercado.evento.status = true;
+  const filePath = path.join(__dirname, "cash.mp3");
+  await sound.play(filePath);
+  client.say("#em1dio", `/me 🔫 Assalto no mercado! O Rei do Crime que fazer um assalto! O premio sera divido entre os participantes`);
+  mercado.evento.quantity = random(10, 25);
+  mercado.evento.risco = random(1, 1000)/1000;
+  client.say("#em1dio", `/me 🔫 O Custo para participar desse evento eh de ${mercado.evento.quantity} 💰`);
+  client.say("#em1dio", `/me 🔫 Os mestres do roubo estao falando que o risco eh: ${definirRisco()} 💰`);
+  client.say("#em1dio", `/me Para participar basta dizer !participar 💰`);
+  setTimeout(async () => {
+    const participantes = mercado.evento.participar;
+    const potencial = random(1, 3);
+    const chance = random(1, 1000)/1000;
+    client.say("#em1dio", `/me 🔫 O Assalto Acabou!!! 💰`);
+    if (chance >= mercado.evento.risco) {
+      const premio = definirPremio();
+      const valorRecebido = mercado.evento.quantity * potencial * premio;
+      client.say("#em1dio", `/me 🔫 O assalto foi um sucesso!`);
+      client.say("#em1dio", `/me 🔫 Os participantes ganharam ${valorRecebido} 💰`);
+      for await (const participante of participantes) {
+        await giveEM1(participante, valorRecebido);
+      }
+    } else {
+      client.say("#em1dio", `/me 🔫 O assalto foi um fracasso!`);
+      const pena = mercado.evento.quantity * definirPremio();
+      client.say("#em1dio", `/me 🔫 Os participantes perderam mais ${pena} 💰`);
+      for await (const participante of participantes) {
+        await takeOutEm1(participante, pena);
+      }
+    }
+    mercado.evento.status = false;
+    mercado.evento.participar = [];
+  }, 40 * 1000);
+
+}
+
+function definirPremio() {
+  const risco = mercado.evento.risco;
+  if (risco <= 0.1) {
+    return random(1, 2);
+  } 
+  if (risco <= 0.3) {
+    return random(2, 3);
+  }
+  if (risco <= 0.5) {
+    return random(3, 4);
+  }
+  if (risco <= 0.7) {
+    return random(4, 6);
+  }
+  if (risco <= 1) {
+    return 10;
+  }
+}
+
+function definirRisco() {
+  const risco = mercado.evento.risco;
+  if (risco <= 0.1) {
+    return "Facil";
+  } 
+  if (risco <= 0.3) {
+    return "Baixo";
+  }
+  if (risco <= 0.5) {
+    return "Medio";
+  }
+  if (risco <= 0.8) {
+    return "Alto";
+  }
+  if (risco <= 1) {
+    return "Impossivel";
+  }
+}
+
