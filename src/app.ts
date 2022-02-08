@@ -29,7 +29,7 @@ enum TipoEvento {
   Assalto = "assalto",
 }
 
-const job = new cronJob("0 */5 * * * *", async () => {
+const job = new cronJob("0 */10 * * * *", async () => {
   if (mercado.status) {
     const functionArray = [
       TipoEvento.Pegar,
@@ -640,9 +640,12 @@ async function EventoAssalto() {
   client.say("#em1dio", `/me Para participar basta dizer !participar 💰`);
   setTimeout(async () => {
     const participantes = mercado.evento.participar;
+    if(participantes.length <= 0){
+      return client.say("#em1dio", `/me 🔫 Ninguem participou do Assalto!`);
+    }
+    client.say("#em1dio", `/me 🔫 O Assalto Acabou!!! 💰`);
     const potencial = random(1, 3);
     const chance = random(1, 1000)/1000;
-    client.say("#em1dio", `/me 🔫 O Assalto Acabou!!! 💰`);
     if (chance >= mercado.evento.risco) {
       const premio = definirPremio();
       const valorRecebido = mercado.evento.quantity * potencial * premio;
@@ -680,7 +683,7 @@ function definirPremio() {
     return random(4, 6);
   }
   if (risco <= 1) {
-    return 10;
+    return random(10, 20);
   }
 }
 
